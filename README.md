@@ -1,6 +1,6 @@
 # GS-LinkHQ
 
-`GS-LinkHQ` is a reinforcement learning based agent that generates policy for both computation offloading and distributed caching in the [`GEdge-Platform`](https://github.com/gedge-platform/gedge-platform). It also provides policy for horizontal (between cloud edge and neighbor cloud edge) and vertical  (between cloud edge and core cloud) collaborative.
+`GS-LinkHQ` is a reinforcement learning based agent that generates policy for both computation offloading and distributed caching in the [`GEdge-Platform`](https://github.com/gedge-platform/gedge-platform). It also support policy for horizontal (between cloud edge and neighbor cloud edge) and vertical  (between cloud edge and core cloud) collaborative.
 
 ![policy_gen_workflow](./docs/policy_gen_workflow.png)
 
