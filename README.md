@@ -5,7 +5,7 @@
 ![policy_gen_workflow](./docs/policy_gen_workflow.png)
 
 
-## Offloading Policy
+## The policy for computaion offloading
 
 - Providing offloading service developers (or service providers) with edge resource allocation policies and capabilities required to implement policies for offloading service development
   - Supporting offloading service provisioning: Optimized resource allocation
@@ -20,9 +20,7 @@
   - Choosing load balancing method
 
 
-## Resource Allocation Policy
-
-Information for decide resource allocation policy
+The information considered to decide the policy is as follows.
 
 - Offloading service definition
   1. CPU specification
