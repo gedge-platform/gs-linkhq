@@ -50,3 +50,19 @@ GS-LinkHQ consists of three subprojects
 - [`agent`](./agent): Reinforcement learning agent developed with the above two projects
   - Real-world (`GEdge-Platform`) environment
 
+
+### Requirements
+- Docker (or Nvidia Docker)
+- Docker compose
+
+### Usage
+
+#### 1. Clone repository
+```shell
+git clone https://github.com/gedge-platform/gs-linkhq.git
+```
+
+#### 2. Build images and run containers
+```shell
+docker compose up --build
+```
