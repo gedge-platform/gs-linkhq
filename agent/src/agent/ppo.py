@@ -65,7 +65,6 @@ class ActorCritic(nn.Module):
         dist = MultivariateNormal(action_mean, cov_mat)
 
         action = dist.sample()
-        action = torch.clamp(action, 0.0, 1.0)
         action_logprob = dist.log_prob(action)
 
         return action.detach(), action_logprob.detach()
@@ -115,9 +114,9 @@ class PPO:
         self.action_std = new_action_std
         self.policy.set_action_std(new_action_std)
         self.policy_old.set_action_std(new_action_std)
+        
 
     def decay_action_std(self, action_std_decay_rate, min_action_std):
-        print("-----------------------------------------------------------------------------------------------------------")
         self.action_std = self.action_std - action_std_decay_rate
         self.action_std = round(self.action_std, 4)
         if (self.action_std <= min_action_std):
@@ -127,7 +126,6 @@ class PPO:
             print("setting actor output action_std to : ", self.action_std)
         self.set_action_std(self.action_std)
 
-        print("-----------------------------------------------------------------------------------------------------------")
 
     def select_action(self, state):
         with torch.no_grad():
@@ -137,6 +135,8 @@ class PPO:
         self.buffer.states.append(state)
         self.buffer.actions.append(action)
         self.buffer.logprobs.append(action_logprob)
+
+        action = torch.clamp(action, 0.0, 1.0)
 
         return action.detach().cpu().numpy().flatten()
 
@@ -149,6 +149,8 @@ class PPO:
                 discounted_reward = 0
             discounted_reward = reward + (self.gamma * discounted_reward)
             rewards.insert(0, discounted_reward)
+        if len(rewards) == 0:
+            return
 
         # Normalizing the rewards
         rewards = torch.tensor(rewards, dtype=torch.float32).to(device)
