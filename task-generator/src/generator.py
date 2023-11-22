@@ -3,6 +3,7 @@ from queue import Queue
 from numpy.random import poisson
 import logging
 
+junho_logger = logging.getLogger('Junho')
 
 class Task:
     def __init__(self, req_edge, cpu, memory, gpu, deadline, ttl):
@@ -42,7 +43,7 @@ class Generator:
         if memory <= 0:
             memory = 0.1
         gpu = np.random.binomial(4, 0.1)
-        deadline = np.random.binomial(20, 0.6)
+        deadline = np.random.binomial(20, 0.3)
         if deadline <= 0:
             deadline = 1
         ttl = np.random.binomial(10, 0.5) * 60

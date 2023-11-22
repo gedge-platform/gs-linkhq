@@ -10,9 +10,9 @@ from agent.dqn import DQN
 
 import requests
 import time
-#import redis
 
 import torch
+import csv
 
 ENV_ADDRESS = os.environ.get('ENV_ADDRESS')
 ENV_PORT = os.environ.get('ENV_PORT')
@@ -62,16 +62,54 @@ api = Api(app)
 
 task_prefix = 'task:'
 
-MAX_EPISODES = 1000
-NUM_STEPS = 60 * 60 * 24
+MAX_EPISODES = 2000
+NUM_STEPS = 100
 LOG_FREQ = 1
 
 task_counter = 0
 
 done = False
-step = 0
-episode = 0
+step = 1
+episode = 1
+state = None
+next_state = None
+ep_reward = 0
+reward_history = []
+drop_counter = 0
+drop_history = []
+late_counter = 0
+late_history = []
 
+train_num = 1
+
+log_path = '/etc/logs'
+weight_path = '/etc/weights'
+
+
+
+def reset_params():
+    global done, step, episode, state, next_state, ep_reward, reward_history, drop_counter, drop_history, late_counter, late_history, agent
+    
+    done = False
+    step = 1
+    episode = 1
+    state = None
+    next_state = None
+    ep_reward = 0
+    reward_history = []
+    drop_counter = 0
+    drop_history = []
+    late_counter = 0
+    late_history = []
+    
+    agent = DQN(len_state, num_action)
+
+    with open(log_path + '/train'+str(train_num)+'.csv', 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['episode', 'reward', 'drop', 'late'])
+
+reset_params()
+        
 
 class Alive(Resource):
     def get(self):
@@ -105,12 +143,9 @@ class Alive(Resource):
 
 class AssignTask(Resource):
     def post(self):
-        global task_counter, step, episode
+        global task_counter, done, step, episode, state, next_state, ep_reward, reward_history, drop_counter, drop_history, late_counter, late_history, train_num
         try:
-            if step >= NUM_STEPS:
-                agent.reset()
-                step = 0
-
+            junho_logger.debug("EP.%s-STEP.%s", episode, step)
 
             data = request.get_json(force=True)
 
@@ -161,6 +196,8 @@ class AssignTask(Resource):
                     state.append(edge[attr])
 
             junho_logger.debug('state: %s', state)
+            #if next_state and state[num_action*3-1:] != next_state[num_action*3-1:]:
+                #junho_logger.critical('s(t) != s(t+1)\ns(t):\t %s\ns(t+1):\t %s', state[num_action*3-1:], next_state[num_action*3-1:])
             
             action = agent.select_action(state).item()
 
@@ -178,27 +215,78 @@ class AssignTask(Resource):
             res = requests.post(env_url + "/" + str(action) + "/task", data)
 
             if res.status_code == 503:
-                raise ServiceUnavailable
+                reward = -10
+                drop_counter += 1
+                junho_logger.debug("Request Dropped.")
+                #raise ServiceUnavailable
             
-            if res.status_code != 201:
+            
+            elif res.status_code == 201:
+                # Calculate Reward
+                if deadline <= 10:
+                    if req_edge == action:
+                        reward = 10
+                    else:
+                        reward = 1
+                        late_counter += 1
+                else:
+                    reward = 10
+            
+            else:
                 raise SystemError("env response: " + str(res.json()))
             
-            # Calculate Reward
-            if deadline <= 10:
-                if req_edge == action:
-                    reward = 10
-                else:
-                    reward = 1
-            else:
-                reward = 10
+            
+            ep_reward += reward
 
             # Memorize Transition
-            #FIXME: check param format
+            next_state = state.copy()
+            x = num_action
+            
+            next_state[0:x+4] = [0] * (x + 4)
+
+            req_resource = state[x:x+3]
+            tmp_state = []
+            for i in zip(next_state[x+4+action*3:x+4+(action+1)*3], req_resource):
+                tmp_state.append(round(i[0] - i[1], 8))
+            next_state[x+4+action*3:x+4+(action+1)*3] = tmp_state
+
+            junho_logger.debug("next_state: %s", next_state)
+
+            junho_logger.debug("reward: %s", reward)
+
             agent.memorize(state, action, next_state, reward)
 
+            step += 1
 
+            if step > NUM_STEPS:
+                reward_history.append(ep_reward)
+                drop_history.append(drop_counter)
+                late_history.append(late_counter)
 
+                # junho_logger.critical("EP.%s Reward:%s", episode, ep_reward)
 
+                junho_logger.info("TRAIN.%s, EP.%s, reward: %s, drop: %s, late: %s", train_num, episode, ep_reward, drop_counter, late_counter)
+                junho_logger.debug("Reward History:%s", reward_history)
+                junho_logger.debug("Drop History:%s\n", drop_history)
+                junho_logger.debug("Late History:%s\n", late_history)
+
+                with open(log_path + '/train'+str(train_num)+'.csv', 'a', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerow([episode, ep_reward, drop_counter, late_counter])
+
+                if not agent.optimize_model():
+                    raise Exception("CANNOT UPDATE MODEL")
+                requests.get(env_url+'/reset')
+                step = 1
+                episode += 1
+                next_state = None
+                ep_reward = 0
+                drop_counter = 0
+                late_counter = 0
+                if episode > MAX_EPISODES:
+                    agent.save_weight(os.path.join(weight_path, 'gs-agent_dqn_'+str(train_num).zfill(4)+'.pt'))
+                    train_num += 1
+                    reset_params()
 
             ret = {
                 "task_id": task_id,

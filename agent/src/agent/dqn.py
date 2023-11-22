@@ -10,9 +10,8 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 import time
+import os
 
-
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(name)s] (%(levelname)s) %(message)s')
 
 junho_logger = logging.getLogger('Junho')
 
@@ -20,6 +19,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 Transition = namedtuple(
     'Transition', ('state', 'action', 'next_state', 'reward'))
+
 
 
 class ReplayMemory:
@@ -40,19 +40,23 @@ class Network(nn.Module):
     def __init__(self, n_observations, n_actions):
         super(Network, self).__init__()
         self.fc1 = nn.Linear(n_observations, 128)
-        self.fc2 = nn.Linear(128, 128)
-        self.fc3 = nn.Linear(128, n_actions)
+        self.fc2 = nn.Linear(128, 256)
+        self.fc3 = nn.Linear(256, 256)
+        self.fc4 = nn.Linear(256, 128)
+        self.fc5 = nn.Linear(128, n_actions)
     
     def forward(self, x):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
-        return self.fc3(x)
+        x = F.relu(self.fc3(x))
+        x = F.relu(self.fc4(x))
+        return self.fc5(x)
 
 
 class DQN:
     def __init__(self, n_observations, n_actions,
-                 mem_capacity=10000, batch_size=100, gamma=0.99,
-                 eps_start=0.9, eps_end=0.05, eps_decay=1000, tau=0.005, lr=0.0001):
+                 mem_capacity=100000, batch_size=1000, gamma=0.99,
+                 eps_start=0.9, eps_end=0.00001, eps_decay=20000, tau=0.005, lr=0.0001):
         
         self.n_observations = n_observations
         self.n_actions = n_actions
@@ -83,54 +87,85 @@ class DQN:
 
         if sample > eps_thresdhold:
             with torch.no_grad():
+                #junho_logger.critical(self.policy_net(state))
                 return self.policy_net(state).max(1)[1].view(1, 1)
         else:
             return torch.tensor([[torch.randint(self.n_actions, (1,))]], device=device, dtype=torch.long)
 
     def optimize_model(self):
-        if len(self.memory) < self.batch_size:
-            return
+        try:
+            if len(self.memory) < self.batch_size:
+                junho_logger.info('Not enough data. Skipping update')
+                return True
 
-        transitions = self.memory.sample(self.batch_size)
+            transitions = self.memory.sample(self.batch_size)
+            batch = Transition(*zip(*transitions))
 
-        batch = Transition(*zip(*transitions))
+            non_final_mask = torch.tensor(tuple(map(lambda s: s is not None, batch.next_state)),
+                                        device=device, dtype=torch.bool)
+            non_final_next_states = torch.cat([s for s in batch.next_state if s is not None])
 
-        non_final_mask = torch.tensor(tuple(map(lambda s: s is not None, batch.next_state)),
-                                      device=device, dtype=torch.bool)
-        non_final_next_states = torch.cat([s for s in batch.next_state if s is not None])
+            state_batch = torch.cat(batch.state)
+            action_batch = torch.cat(batch.action)
+            reward_batch = torch.cat(batch.reward).squeeze()
 
-        state_batch = torch.cat(batch.state)
-        action_batch = torch.cat(batch.action)
-        reward_batch = torch.cat(batch.reward)
+            state_action_values = self.policy_net(state_batch).gather(1, action_batch)
+            next_state_values = torch.zeros(self.batch_size, device=device)
 
-        state_action_values = self.policy_net(state_batch).gather(1, action_batch)
+            with torch.no_grad():
+                next_state_values[non_final_mask] = self.target_net(non_final_next_states).max(1)[0].detach()
 
-        next_state_values = torch.zeros(self.batch_size, device=device)
+            expected_state_action_values = reward_batch + (self.gamma * next_state_values)
 
-        with torch.no_grad():
-            next_state_values[non_final_mask] = self.target_net(non_final_next_states).max(1)[0].detach()
+            criterion = nn.SmoothL1Loss()
+            loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
+            self.optimizer.zero_grad()
+            loss.backward()
 
-        expected_state_action_values = reward_batch + (self.gamma * next_state_values)
+            torch.nn.utils.clip_grad_value_(self.policy_net.parameters(), 100)
+            self.optimizer.step()
+            target_net_state_dict = self.target_net.state_dict()
+            policy_net_state_dict = self.policy_net.state_dict()
+            for key in policy_net_state_dict:
+                target_net_state_dict[key] = policy_net_state_dict[key]*self.tau + target_net_state_dict[key]*(1-self.tau)
+            self.target_net.load_state_dict(target_net_state_dict)
+
+            junho_logger.info("UPDATE COMPLETE")
+
+            return True
+
+        except Exception as e:
+            junho_logger.critical("optimize")
+            junho_logger.critical(e)
+
+            return False
 
 
-        criterion = nn.SmoothL1Loss()
-        loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
+    def memorize(self, state, action, next_state, reward):
+        try:
+            state = torch.unsqueeze(torch.tensor(state, dtype=torch.float32, device=device), 0)
+            action = torch.unsqueeze(torch.tensor([action], dtype=torch.int64, device=device), 0)
+            next_state = torch.unsqueeze(torch.tensor(next_state, dtype=torch.float32, device=device), 0)
+            reward = torch.unsqueeze(torch.tensor([reward], dtype=torch.float32, device=device), 0)
 
-        self.optimizer.zero_grad()
-        loss.backward()
+            # junho_logger.debug(state)
+            # junho_logger.debug(action)
+            # junho_logger.debug(next_state)
+            # junho_logger.debug(reward)
 
-        torch.nn.utils.clip_grad_value_(self.policy_net.parameters(), 100)
-        self.optimizer.step()
+            self.memory.push(state, action, next_state, reward)
+        
+        except Exception as e:
+            junho_logger.critical("memorize")
+            junho_logger.critical(e)
+
+    # def reset(self): #TODO: need check
+    #     self.step = 0
+    #     self.episode += 1
 
 
-    def memorize(self, state, action, state_next, reward):
-        state = torch.unsqueeze(torch.tensor(state, dtype=torch.float32, device=device), 0)
-        # action = 
-        self.memory.push(state, action, state_next, reward)
-
-    def reset(self): #TODO: need check
-        self.step = 0
-        self.episode += 1
+    def save_weight(self, file_path):
+        torch.save(self.target_net.state_dict(), file_path)
     
 
 if __name__ == '__main__':

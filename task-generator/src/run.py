@@ -129,6 +129,7 @@ def get_task():
     threading.Thread(target=get_task).start()
     if wait:
         return
+    # junho_logger.critical('q_len: %s', gen.q.qsize())
     
     wait = True
     if not gen.q.empty():

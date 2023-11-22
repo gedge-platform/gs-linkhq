@@ -152,11 +152,24 @@ class AssignTask(Resource):
 
             return ret, 500
 
+class Reset(Resource):
+    def get(self):
+        env.reset()
+        state = env.state()
+
+        ret = {
+            'edges': state
+        }
+
+        return ret, 200
+        
+
 
 api.add_resource(Alive, '/alive')
 api.add_resource(Dims, '/dims')
 api.add_resource(GetState, '/state')
 api.add_resource(AssignTask, '/<edge_id>/task')
+api.add_resource(Reset, '/reset')
 
 if __name__ == '__main__':
     app.run()
