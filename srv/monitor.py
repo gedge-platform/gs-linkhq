@@ -1,94 +1,115 @@
 import requests
-import time
+import json
 
-metrics = {'cluster-filter':        ['gm-cluster',
-                                     'onpremise(dongjak)',
-                                     'mec(ilsan)',
-                                     'innogrid-k8s-master',
-                                     'innogrid-k8s-2',
-                                     'innogrid-1',
-                                     'ai-networklab(pangyo)',
-                                     '5G-opentestlab(Daejeon)'],
+baseurl = 'http://{}:{}/gmcapi/v2/{}'
 
-           'kind': {'cluster':      ['cpu_util',
-                                     'cpu_usage',
-                                     'cpu_total',
-                                     'memory_util',
-                                     'memory_usage',
-                                     'memory_total',
-                                     'disk_util',
-                                     'disk_usage',
-                                     'disk_total',
-                                     'pod_running',
-                                     'pod_quota',
-                                     'pod_util'],
+def get_token(addr, port, id, pw):
+    token = None
+    service = 'auth'
+    body = {}
+    body['id'] = id
+    body['password']= pw
+    body = json.dumps(body)
+    url = baseurl.format(addr, port, service)
 
-                    'pod':          ['pod_cpu',
-                                     'pod_memory',
-                                     'pod_net_bytes_transmitted',
-                                     'pod_net_bytes_received'],
+    try:
+        res = requests.post(url, body)
+        res_json = res.json()
+        token = res_json['accessToken']
+    finally:
+        return token
 
-                    'app':          ['pod_count',
-                                     'sevice_count',  # Check spell sevice -> service?
-                                     'deployment_count',
-                                     'cronjob_count',
-                                     'job_count',
-                                     'pv_count',
-                                     'pvc_count',
-                                     'namespace_count'],
+def get_clusters(addr, port, token):
+    service = 'clusters'
+    url = baseurl.format(addr, port, service, token)
+    headers = {'Authorization': 'Bearer {}'.format(token)}
 
-                    'gpu':          ['gpu_tempreture',
-                                     'gpu_power',
-                                     'gpu_power_limit',
-                                     'gpu_memory_total',
-                                     'gpu_memory_used',
-                                     'gpu_memory_free',
-                                     'gpu_ratio',
-                                     'gpu_memory_ratio',
-                                     'gpu_fan_speed'],
-
-                    'namespace':    ['namespace_cpu',
-                                     'namespace_memory',
-                                     'namespace_pod_count']
-                    }
-          }
-
-
-def concat_metrics(metric_index):
-    ret = ""
-    for i in metric_index:
-        ret += cluster_metrics[i]
-        ret += '|'
+    res = requests.get(url, headers=headers)
+    res_json = res.json()
+    data = res_json['data']
+    edges = []
+    for cluster in data:
+        if cluster['clusterType'] == 'edge' and cluster['status'] == 'success':
+            edges.append(cluster['clusterName'])
     
-    ret = ret[:-1]
-    print(ret)
+    return edges
 
-def validate_requset(cluster, metric):
-    if cluster not in clusters:
-        return False
+def get_gpu(addr, port, edge, token):
+    service = 'gpu'
+    url = baseurl.format(addr, port, service, token)
+    headers = {'Authorization': 'Bearer {}'.format(token)}
+    url_gpu = url + '?cluster={}'.format(edge)
+
+    try:
+        res = requests.get(url_gpu, headers=headers, timeout=5)
+        res_json = res.json()
+        if res_json['data'] == None:
+            return 0
     
-    if not set(metric.split('_')) <= set(cluster_metrics):
-        return False
+        data = res_json['data']
+        allocatable = 0
+        limits = 0
+        for node in data:
+            allocatable += int(node['allocatable']['nvidia.com/gpu'])
+            if node['requests']:
+                limits += int(node['requests']['nvidia.com/gpu'])
+
+        gpu = allocatable - limits
     
-    return True
+    except requests.exceptions.ReadTimeout as timeout:
+        gpu = 0
 
-def requset_monitor(ip, port, kind, cluster, metric, auth):
-    if validate_requset(cluster, metric):
-        t = int(time.time())
-        uri = 'http://{}:{}/kube/v1/monitoring/{}?start={}&end={}&step=1s&cluster_filter={}&metric_filter={}'.format(ip, port, kind, t, t, cluster, metric)
-        print(uri)
+    return gpu
 
-        return requests.get(uri, auth=auth)
-    else:
-        return False
+
+
+def get_status(addr, port, edge_list, token):
+    service = 'cloudDashboard'
+    url = baseurl.format(addr, port, service, token)
+    headers = {'Authorization': 'Bearer {}'.format(token)}
+
+    status = []
+
+    for edge in edge_list:
+        url_status = url + '?cluster={}'.format(edge)
+        res = requests.get(url_status, headers=headers, timeout=5)
+        res_json = res.json()
+        data = res_json['data']
+        cpu = round(float(data['cpuTotal']['value']) - float(data['cpuUsage']['value']), 8)
+        memoroy = round(float(data['memoryTotal']['value']) - float(data['memoryUsage']['value']), 8)
+        disk = round(float(data['diskTotal']['value']) - float(data['diskUsage']['value']), 8)
+        gpu = get_gpu(addr, port, edge, token)
+        
+        edge_status = [cpu, memoroy, disk, gpu]
+        print(edge,":", edge_status)
+        
+        status += edge_status
+
+    return status
+
+def monitor(addr, port, id, pw):
+    token = get_token(addr, port, id, pw)
+    edge_list = get_clusters(addr, port, token)
+    status = get_status(addr, port, edge_list, token)
+
+    return status
+
+def get_info(addr, port, id, pw):
+    token = get_token(addr, port, id, pw)
+    edges = get_clusters(addr, port, token)
+    n_actions = len(edges)
+    n_observations = n_actions + 5 \
+                     + (n_actions * 4)
+    return n_observations, n_actions, edges
+
+def test():
+    ADDR = '101.79.4.15'
+    PORT = '31701'
+    ID = 'deu1117'
+    PW = 'deu1117'
+    print(monitor(ADDR, PORT, ID, PW))
+
+
 
 if __name__ == '__main__':
-    res = requset_monitor('gm-cluster', 'cpu_util', auth)
-
-    if res:
-        res_json = res.json()
-        print(res_json)
-    
-    else:
-        pass
-
+    test()

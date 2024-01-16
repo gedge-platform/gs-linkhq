@@ -14,7 +14,7 @@ class VEdge:
         self.rewards = []
         self.conf = get_conf(conf_path)
         for edge in self.conf['edges']:
-            self.edges.append(Edge(edge['name'], edge['cpu'], edge['memory'], edge['gpu']))
+            self.edges.append(Edge(edge['name'], edge['cpu'], edge['memory'], edge['disk'], edge['gpu']))
 
     def reset(self):
         self.rewards.append(self.reward)

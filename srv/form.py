@@ -2,63 +2,72 @@ from flask import Flask,render_template,request
 import requests
 import json
 import os
+from monitor import monitor, get_info
+from agent.dqn import DQN
+import torch
 
-SERVER_IP = os.environ.get('SERVER_IP')
-SERVER_PORT = os.environ.get('SERVER_PORT')
-
-AGENT_ADDRESS = os.environ.get('AGENT_ADDRESS')
-AGENT_PORT = os.environ.get('AGENT_PORT')
+MONITOR_ADDR = os.environ.get('SERVER_IP')
+MONITOR_PORT = os.environ.get('SERVER_PORT')
 
 AUTH_ID = os.environ.get('AUTH_ID')
-AUTH_PASS = os.environ.get('AUTH_PASS')
+AUTH_PW = os.environ.get('AUTH_PW')
 
 app = Flask(__name__)
 
-if '://' in AGENT_ADDRESS:
-    agent_url = AGENT_ADDRESS
+if '://' in MONITOR_ADDR:
+    monitor_url = MONITOR_ADDR
 else:
-    agent_url = 'http://' + AGENT_ADDRESS
-if AGENT_PORT != '80':
-    agent_url = agent_url + ':' + AGENT_PORT
+    monitor_url = 'http://' + MONITOR_ADDR
 
-def request_assigned_cluster(task_id):
-    pass
+len_state, num_action, edges = get_info(MONITOR_ADDR, MONITOR_PORT, AUTH_ID, AUTH_PW)
 
-def request_assign_task(task):
-    endpoint = agent_url + '/task'
-    data = {'task': {'req_edge': task.req_edge,
-                     'resources': {'cpu': task.resources['cpu'],
-                                   'memory': task.resources['memory'],
-                                   'gpu': task.resources['gpu']
-                                   },
-                     'deadline': task.deadline}}
-    data = json.dumps(data)
+agent = DQN(len_state, num_action, eps_start=0, eps_end=0, eps_decay=0, weight='weights/offload.pt')
 
-    try:
-        res = requests.post(endpoint, data)
-        if res.status_code == 201:
-            data = res.json()
-            task_id = data['task_id']
-        
-        elif res.status_code == 503:
-            data = res.json()
-    
-    except requests.exceptions.RequestException:
-        pass
+@app.route('/offload')
+def offload():
+    return render_template('offload.html', edges = enumerate(edges))
 
-
-@app.route('/')
-def form():
-    return render_template('form.html')
+@app.route('/cache')
+def cache():
+    return render_template('cache.html', edges = enumerate(edges))
  
-@app.route('/data/', methods = ['POST', 'GET'])
+@app.route('/result/', methods = ['POST', 'GET'])
 def data():
     if request.method == 'GET':
-        return f"The URL /data is accessed directly. Try going to '/form' to submit form"
+        return f"The URL /result is accessed directly. Try going to '/' to submit form"
+
     if request.method == 'POST':
         form_data = request.form
-        requests.post("http://agent/")
-        return render_template('data.html', form_data = form_data)
+        data = list(dict(form_data).values())
+        subject = "Offloading"
+
+
+        if len(data) == 5:
+            data.append(data[-1])
+            data[-2] = 0
+        elif len(data) == 3:
+            data = ([0] * 2) + [data[0]] + [0] + data[-2:]
+            subject = "Caching"
+        elif len(data) == 2:
+            data = ([0] * 2) + [data[0]] + ([0] * 2) + [data[-1]]
+            subject = "Caching"
+        
+        floatdata = []
+        for i in data:
+            floatdata.append(float(i))
+        one_hot = [0] * num_action
+        one_hot[int(floatdata[-1])] = 1
+        req_resource = floatdata[:-1]
+        state = one_hot + req_resource + monitor(MONITOR_ADDR, MONITOR_PORT, AUTH_ID, AUTH_PW)
+
+        print('state:', state)
+        res = agent.select_action(state)
+        print(res)
+        action = res.item()
+        print('action:', action)
+        result = edges[action]
+
+        return render_template('result.html', subject=subject, form_data=form_data, result=result)
  
  
-app.run(host='0.0.0.0', port=5000, debug=True)
+app.run(host='0.0.0.0', port=5555, debug=True)

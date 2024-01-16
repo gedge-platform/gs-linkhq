@@ -1,3 +1,7 @@
 venv
 logs/*.csv
 weights/*.pt
+*.env
+*/__pycache__
+*.pyc
+*.pt

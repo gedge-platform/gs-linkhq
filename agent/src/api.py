@@ -50,7 +50,7 @@ res = requests.get(env_url + '/state')
 data = res.json()
 
 task_attributes = ['req_edge', 'resources', 'deadline']
-resource_attributes = ['cpu', 'memory', 'gpu']
+resource_attributes = ['cpu', 'memory', 'disk', 'gpu']
 len_state = len(data['edges']) + len(resource_attributes) + 1 \
     + (len(data['edges']) * len(resource_attributes))
 num_action = len(data['edges'])
@@ -84,7 +84,6 @@ train_num = 1
 
 log_path = '/etc/logs'
 weight_path = '/etc/weights'
-
 
 
 def reset_params():
@@ -166,6 +165,7 @@ class AssignTask(Resource):
             resources = task['resources']
             cpu = resources['cpu']
             memory = resources['memory']
+            disk = resources['disk']
             gpu = resources['gpu']
             deadline = task['deadline']
 
@@ -196,8 +196,6 @@ class AssignTask(Resource):
                     state.append(edge[attr])
 
             junho_logger.debug('state: %s', state)
-            #if next_state and state[num_action*3-1:] != next_state[num_action*3-1:]:
-                #junho_logger.critical('s(t) != s(t+1)\ns(t):\t %s\ns(t+1):\t %s', state[num_action*3-1:], next_state[num_action*3-1:])
             
             action = agent.select_action(state).item()
 
@@ -207,6 +205,7 @@ class AssignTask(Resource):
                              'req_edge': req_edge,
                              'resources': {'cpu': cpu,
                                            'memory': memory,
+                                           'disk': disk,
                                            'gpu': gpu
                                            },
                              'deadline': deadline
@@ -223,7 +222,7 @@ class AssignTask(Resource):
             
             elif res.status_code == 201:
                 # Calculate Reward
-                if deadline <= 10:
+                if deadline == 1:
                     if req_edge == action:
                         reward = 10
                     else:
@@ -242,19 +241,25 @@ class AssignTask(Resource):
             next_state = state.copy()
             x = num_action
             
-            next_state[0:x+4] = [0] * (x + 4)
+            next_state[0:x+5] = [0] * (x + 5)
 
-            req_resource = state[x:x+3]
+            req_resource = state[x:x+4]
             tmp_state = []
-            for i in zip(next_state[x+4+action*3:x+4+(action+1)*3], req_resource):
-                tmp_state.append(round(i[0] - i[1], 8))
-            next_state[x+4+action*3:x+4+(action+1)*3] = tmp_state
+            for i in zip(next_state[x+5+action*4:x+5+(action+1)*4], req_resource):
+                after_assign = round(i[0] - i[1], 8)
+                if after_assign <= 0:
+                    after_assign = 0
+                tmp_state.append(after_assign)
+            next_state[x+5+action*4:x+5+(action+1)*4] = tmp_state
 
             junho_logger.debug("next_state: %s", next_state)
 
             junho_logger.debug("reward: %s", reward)
 
             agent.memorize(state, action, next_state, reward)
+
+            if not agent.optimize_model():
+                raise Exception("CANNOT UPDATE MODEL")
 
             step += 1
 
@@ -266,6 +271,7 @@ class AssignTask(Resource):
                 # junho_logger.critical("EP.%s Reward:%s", episode, ep_reward)
 
                 junho_logger.info("TRAIN.%s, EP.%s, reward: %s, drop: %s, late: %s", train_num, episode, ep_reward, drop_counter, late_counter)
+                junho_logger.info("Last State: %s", next_state[x+5:])
                 junho_logger.debug("Reward History:%s", reward_history)
                 junho_logger.debug("Drop History:%s\n", drop_history)
                 junho_logger.debug("Late History:%s\n", late_history)
@@ -274,8 +280,7 @@ class AssignTask(Resource):
                     writer = csv.writer(f)
                     writer.writerow([episode, ep_reward, drop_counter, late_counter])
 
-                if not agent.optimize_model():
-                    raise Exception("CANNOT UPDATE MODEL")
+                
                 requests.get(env_url+'/reset')
                 step = 1
                 episode += 1

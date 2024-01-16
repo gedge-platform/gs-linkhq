@@ -76,6 +76,7 @@ def request_assign_task(task: Task):
     data = {'task': {'req_edge': task.req_edge,
                      'resources': {'cpu': task.resources['cpu'],
                                    'memory': task.resources['memory'],
+                                   'disk': task.resources['disk'],
                                    'gpu': task.resources['gpu']
                                    },
                      'deadline': task.deadline}}

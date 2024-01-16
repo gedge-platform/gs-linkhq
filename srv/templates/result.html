@@ -4,7 +4,7 @@
 
 <body class="bg-gray-800 m-16 mb-0">
     <h1 class="mb-8 text-4xl font-extrabold leading-none tracking-tight text-white md:text-5xl lg:text-6xl">GS-LinkHQ</h1>
-    <h2 class="mb-12 text-2xl font-extrabold leading-none tracking-tight text-white md:text-3xl lg:text-4xl">Offloading&nbsp;Cluster Recommendation&nbsp;System</h2>
+    <h2 class="mb-12 text-2xl font-extrabold leading-none tracking-tight text-white md:text-3xl lg:text-4xl">{{subject}}&nbsp;Cluster Recommendation&nbsp;System</h2>
     <h3 class="mb-8 text-xl font-extrabold leading-none tracking-tight text-white md:text-2xl lg:text-3xl">Recommendation Result</h3>
 
         <div class="md:flex md:items-center mb-6">
@@ -19,28 +19,12 @@
                 </label>
             </div>
         </div>
-
-        {% for key, value in form_data.items() %}
-        <div class="md:flex md:items-center mb-6">
-            <div class="md:w-1/3">
-                <label class="block text-white font-bold md:text-left mb-1 md:mb-0 pr-4" for="inline-full-name">
-                    {{key}}
-                </label>
-            </div>
-            <div class="md:w-2/3">
-                <label class="block text-white font-bold md:text-left mb-1 md:mb-0 pr-4" for="inline-full-name">
-                    {{value}}
-                </label>
-            </div>
-        </div>
-        {% endfor %}
-        
         <div class="md:flex md:items-center mt-8">
             <!-- <div class="md:w-1/3"></div> -->
             <div class="md:w-2/3">
                 <button
                     class="shadow bg-indigo-700 hover:bg-indigo-800 focus:shadow-outline focus:outline-none text-white font-bold py-2 px-4 rounded"
-                    type="button" onclick="location.href='/'">
+                    type="button" onclick="history.back()">
                     Back
                 </button>
             </div>
