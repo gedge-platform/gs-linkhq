@@ -57,13 +57,19 @@ Each componets communicates through RESTful API
 - Docker compose
 
 ### Usage
-
 #### 1. Clone repository
 ```shell
 git clone https://github.com/gedge-platform/gs-linkhq.git
 ```
 
-#### 2. Build images and run containers
+#### 2. Build images and run containers (Training Model)
 ```shell
 docker compose up --build
+```
+
+#### 3. Start Recommendation Server
+```shell
+cd srv
+docker build --tag linkhq:4.0 .
+docker run -p 80:80 linkhq:4.0
 ```
