@@ -9,4 +9,6 @@ ENV FLASK_APP=api.py
 ENV FLASK_RUN_HOST=0.0.0.0
 ENV FLASK_RUN_PORT=80
 
+EXPOSE 80
+
 ENTRYPOINT ["python3", "-m", "flask", "run"]
